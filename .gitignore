@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.lib/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# Mobile App
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/dist/
+mobile-app/npm-debug.log*
+
+# Models & Data (Large Files)
+*.pth
+*.npz
+*.edf
+*.set
+*.csv
+*.crswap
+
+# Large Documents & Media
+*.pdf
+*.docx
+*.pptx
+*.mp4
+*.avi
+*.mov
+*.mp3
+
+# Report generation scripts (not core)
+extract_*.py
+generate_*.py
+
+# Derivative/processed data
+derivatives/
+processed_data/
+processed_v2/
+ADFTD/
+ADFTD_git/
+
+# Misc large/non-essential files
+output.txt
+extract_log.txt
+pdf_content.txt
+CHANGES
+README
+Walkthrough
+
+# Environment & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
