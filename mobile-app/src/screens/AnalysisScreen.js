@@ -5,11 +5,13 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import * as DocumentPicker from 'expo-document-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const BACKEND_URL = 'http://192.168.29.19:8000';
+const BACKEND_URL = 'http://10.26.143.148:8000';
 
-// Generates a mock EEG waveform path as an array of {x, y} points
+// Generates a mock EEG waveform path
 function generateWavePoints(count = 120, channelIndex = 0) {
     const points = [];
     for (let i = 0; i < count; i++) {
@@ -22,15 +24,15 @@ function generateWavePoints(count = 120, channelIndex = 0) {
     return points;
 }
 
-// Draw EEG waveform using tiny View bars
-function EEGWaveform() {
+// Scifi Animated Waveform
+function EEGWaveform({ isProcessing }) {
     const channels = [0, 1, 2, 3];
     const colors = ['#f97316', '#ec4899', '#a855f7', '#3b82f6'];
     const BAR_COUNT = 80;
-    const BAR_WIDTH = (SCREEN_WIDTH - 48) / BAR_COUNT;
+    const BAR_WIDTH = (SCREEN_WIDTH - 64) / BAR_COUNT;
 
     return (
-        <View style={waveStyles.waveContainer}>
+        <View style={[waveStyles.waveContainer, isProcessing && waveStyles.waveProcessing]}>
             {channels.map((ch, ci) => {
                 const pts = generateWavePoints(BAR_COUNT, ch);
                 return (
@@ -46,7 +48,7 @@ function EEGWaveform() {
                                             height: h,
                                             width: BAR_WIDTH - 0.5,
                                             backgroundColor: colors[ci],
-                                            opacity: 0.7 + (Math.abs(pt.y) / 30) * 0.3,
+                                            opacity: isProcessing ? 0.9 : 0.4 + (Math.abs(pt.y) / 40),
                                             marginTop: pt.y > 0 ? 0 : h / 2,
                                         }
                                     ]}
@@ -56,38 +58,50 @@ function EEGWaveform() {
                     </View>
                 );
             })}
+            {isProcessing && (
+                <View style={waveStyles.scanLine} />
+            )}
         </View>
     );
 }
 
 const waveStyles = StyleSheet.create({
     waveContainer: {
-        width: '100%', backgroundColor: '#111827',
-        borderRadius: 12, padding: 12,
-        borderWidth: 1, borderColor: '#1f2937',
-        marginBottom: 14,
+        width: '100%', backgroundColor: 'rgba(5, 11, 20, 0.8)',
+        borderRadius: 16, padding: 16,
+        borderWidth: 1, borderColor: '#1E293B',
+        marginBottom: 20, position: 'relative', overflow: 'hidden'
+    },
+    waveProcessing: {
+        borderColor: '#3B82F6',
+        backgroundColor: 'rgba(15, 23, 42, 0.9)',
     },
     channelRow: {
         flexDirection: 'row', alignItems: 'center',
         height: 36, marginVertical: 2, overflow: 'hidden',
     },
     bar: { borderRadius: 1, marginHorizontal: 0.25 },
+    scanLine: {
+        position: 'absolute', top: 0, bottom: 0, left: '50%', width: 2,
+        backgroundColor: '#60A5FA', shadowColor: '#60A5FA', shadowOpacity: 1, shadowRadius: 10,
+    }
 });
 
 export default function AnalysisScreen({ route, navigation }) {
-    const { mode } = route.params;
-    const [status, setStatus] = useState('idle'); // idle | running | done
+    const { mode, patientId } = route.params || { mode: 'upload', patientId: null };
+    const [status, setStatus] = useState('idle');
     const [progress, setProgress] = useState(0);
     const [totalSegments, setTotalSegments] = useState(67);
     const [processedSegments, setProcessedSegments] = useState(0);
 
-    // Subject selection for real mode
     const [subjects, setSubjects] = useState([]);
     const [selectedSubject, setSelectedSubject] = useState(null);
     const [loadingSubjects, setLoadingSubjects] = useState(mode === 'real');
 
-    // Upload mode state
     const [uploadedFile, setUploadedFile] = useState(null);
+    const [patientName, setPatientName] = useState('');
+    const [patientAge, setPatientAge] = useState('');
+    const [patientDetails, setPatientDetails] = useState('');
 
     const progressAnim = useRef(new Animated.Value(0)).current;
 
@@ -114,7 +128,6 @@ export default function AnalysisScreen({ route, navigation }) {
         setProgress(0);
         setProcessedSegments(0);
 
-        // Animate progress bar
         let seg = 0;
         const total = totalSegments;
         const interval = setInterval(() => {
@@ -133,7 +146,8 @@ export default function AnalysisScreen({ route, navigation }) {
                     navigation.replace('Results', { 
                         mode, 
                         subjectId: selectedSubject, 
-                        uploadedFile: mode === 'upload' ? uploadedFile : null
+                        uploadedFile: mode === 'upload' ? uploadedFile : null,
+                        patientId, patientName, patientAge, patientDetails
                     });
                 }, 600);
             }
@@ -149,44 +163,37 @@ export default function AnalysisScreen({ route, navigation }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <StatusBar barStyle="light-content" backgroundColor="#0d1117" />
-            <View style={styles.statusRow}>
-                <Text style={styles.timeText}>9:41</Text>
+            <StatusBar barStyle="light-content" backgroundColor="#050B14" />
+            <LinearGradient colors={['#0A0F1D', '#050B14']} style={StyleSheet.absoluteFillObject} />
+            
+            <View style={styles.headerRow}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <Feather name="chevron-left" size={24} color="#60A5FA" />
+                    <Text style={styles.backBtn}>Back</Text>
+                </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                {/* Header */}
-                <View style={styles.headerRow}>
-                    <TouchableOpacity onPress={() => navigation.goBack()}>
-                        <Text style={styles.backBtn}>◀  EEG Analysis</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Mode badge */}
                 <View style={styles.modeBadge}>
                     <Text style={styles.modeBadgeText}>
-                        Mode: {mode === 'simulated' ? 'Simulated Stream' : mode === 'upload' ? 'Upload Local EDF/CSV' : `Real Subject — ${selectedSubject || '…'}`}
+                        {mode === 'upload' ? 'Upload Mode' : mode === 'real' ? 'Real Database' : 'Simulation Mode'}
                     </Text>
+                    <Text style={styles.brandSubtitle}>Initializing Pipeline</Text>
                 </View>
 
-                {/* EEG Waveform */}
-                <EEGWaveform />
+                {/* Scifi Waveform */}
+                <EEGWaveform isProcessing={isRunning} />
 
-                {/* Strategy badge */}
-                <View style={styles.strategyBadge}>
-                    <Text style={styles.strategyText}>Strategy: Score Averaging</Text>
-                </View>
-
-                {/* Subject selector (real mode) */}
+                {/* Database Selection (real mode) */}
                 {mode === 'real' && (
                     <View style={styles.subjectSection}>
-                        <Text style={styles.subjectLabel}>Select Subject:</Text>
+                        <Text style={styles.sectionLabel}>Available Subjects</Text>
                         {loadingSubjects ? (
-                            <ActivityIndicator color="#3b5bdb" />
+                            <ActivityIndicator size="small" color="#60A5FA" style={{ marginVertical: 10 }} />
                         ) : (
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
                                 {subjects.map(sub => (
-                                    <TouchableOpacity
+                                    <TouchableOpacity 
                                         key={sub}
                                         style={[styles.pill, selectedSubject === sub && styles.pillActive]}
                                         onPress={() => setSelectedSubject(sub)}
@@ -201,123 +208,160 @@ export default function AnalysisScreen({ route, navigation }) {
                     </View>
                 )}
 
-                {/* Upload Picker (upload mode) */}
+                {/* Patient Information & File Upload (upload mode) */}
                 {mode === 'upload' && (
                     <View style={styles.subjectSection}>
-                        <Text style={styles.subjectLabel}>Select EDF/CSV/SET File:</Text>
+                        <Text style={styles.sectionLabel}>Patient Metadata</Text>
+                        <TextInput 
+                            style={styles.inputField} 
+                            placeholderTextColor="#475569" 
+                            placeholder="Patient Full Name" 
+                            value={patientName} 
+                            onChangeText={setPatientName} 
+                        />
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 12}}>
+                            <TextInput 
+                                style={[styles.inputField, {flex: 1}]} 
+                                placeholderTextColor="#475569" 
+                                placeholder="Age" 
+                                keyboardType="numeric"
+                                value={patientAge} 
+                                onChangeText={setPatientAge} 
+                            />
+                            <TextInput 
+                                style={[styles.inputField, {flex: 2}]} 
+                                placeholderTextColor="#475569" 
+                                placeholder="Clinical Notes..." 
+                                value={patientDetails} 
+                                onChangeText={setPatientDetails} 
+                            />
+                        </View>
+
+                        <Text style={[styles.sectionLabel, { marginTop: 16 }]}>EDF / CSV Signal Target</Text>
                         <TouchableOpacity 
-                            style={styles.uploadBtn}
+                            style={[styles.uploadDropzone, (!patientName || !patientAge) && { opacity: 0.4 }]}
+                            activeOpacity={0.7}
                             onPress={async () => {
+                                if (!patientName || !patientAge) {
+                                    alert("Please supply Patient Name and Age prior to targeting data.");
+                                    return;
+                                }
                                 try {
-                                    const res = await DocumentPicker.getDocumentAsync({
-                                        type: ['*/*'], // EEG formats often don't have standard MIME types
-                                    });
+                                    const res = await DocumentPicker.getDocumentAsync({ type: ['*/*'] });
                                     if (!res.canceled && res.assets && res.assets.length > 0) {
                                         const file = res.assets[0];
-                                        const name = file.name.toLowerCase();
                                         const allowed = ['.edf', '.csv', '.set', '.npz'];
-                                        if (!allowed.some(ext => name.endsWith(ext))) {
-                                            alert(`Unsupported file format: ${file.name}. Please select an .edf, .csv, .set, or .npz file.`);
+                                        if (!allowed.some(ext => file.name.toLowerCase().endsWith(ext))) {
+                                            alert(`Unsupported format: ${file.name}`);
                                             return;
                                         }
                                         setUploadedFile(file);
                                     }
-                                } catch (e) { console.error('Doc pick error:', e); }
+                                } catch (e) { console.error(e); }
                             }}
                         >
-                            <Text style={styles.uploadBtnText}>
-                                {uploadedFile ? `Picked: ${uploadedFile.name}` : '📂 Choose File (EDF/CSV)...'}
+                            <Feather name="upload-cloud" size={32} color={uploadedFile ? '#4ADE80' : '#64748B'} marginBottom={10} />
+                            <Text style={[styles.uploadDropzoneText, uploadedFile && { color: '#4ADE80' }]}>
+                                {uploadedFile ? `Targeted: ${uploadedFile.name}` : 'Tap to Target File'}
                             </Text>
                         </TouchableOpacity>
                     </View>
                 )}
 
-                {/* Progress bar (shown while running) */}
-                {isRunning && (
-                    <View style={styles.progressSection}>
-                        <View style={styles.progressBarBg}>
-                            <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
+                {/* Process Execution Section */}
+                <View style={[styles.actionSection, isRunning && { opacity: 0.8 }]}>
+                    {isRunning && (
+                        <View style={styles.progressContainer}>
+                            <View style={styles.progressBarWrapper}>
+                                <Animated.View style={[styles.progressBarFill, { width: progressBarWidth }]} />
+                            </View>
+                            <Text style={styles.progressLabel}>
+                                Synthesizing {processedSegments} / {totalSegments} epochs...
+                            </Text>
                         </View>
-                        <Text style={styles.progressText}>
-                            Processing {processedSegments} of {totalSegments} segments…
-                        </Text>
-                    </View>
-                )}
-
-                {/* Run MTDNet Inference button */}
-                <TouchableOpacity
-                    style={[styles.inferenceBtn, isRunning && styles.inferenceBtnDisabled]}
-                    onPress={runInference}
-                    disabled={isRunning}
-                    activeOpacity={0.85}
-                >
-                    {isRunning ? (
-                        <ActivityIndicator color="#fff" />
-                    ) : (
-                        <Text style={styles.inferenceBtnText}>⚡  Run MTDNet Inference</Text>
                     )}
-                </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.deployBtn}
+                        activeOpacity={0.8}
+                        onPress={runInference}
+                        disabled={isRunning || status === 'done'}
+                    >
+                        <LinearGradient
+                            colors={['#2563EB', '#4F46E5']}
+                            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                            style={styles.deployBtnGradient}
+                        >
+                            {isRunning ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                                <Text style={styles.deployBtnText}>Execute Neural Analysis</Text>
+                            )}
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
+
             </ScrollView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#0d1117' },
-    statusRow: { paddingHorizontal: 20, paddingTop: 6, alignItems: 'center' },
-    timeText: { color: '#d1d5db', fontSize: 13, fontWeight: '500' },
-    scroll: { padding: 20, paddingBottom: 40 },
-
-    headerRow: { marginBottom: 16 },
-    backBtn: { color: '#93c5fd', fontSize: 16, fontWeight: '700' },
-
-    modeBadge: {
-        backgroundColor: '#1f2937', borderRadius: 8,
-        paddingHorizontal: 14, paddingVertical: 10,
-        marginBottom: 14,
+    safe: { flex: 1, backgroundColor: '#050B14' },
+    scroll: { padding: 24, paddingBottom: 60 },
+    headerRow: { 
+        paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10,
+        flexDirection: 'row', alignItems: 'center' 
     },
-    modeBadgeText: { color: '#94a3b8', fontSize: 14 },
+    backBtn: { color: '#60A5FA', fontSize: 16, fontWeight: '700', marginLeft: 4 },
 
-    strategyBadge: {
-        backgroundColor: '#1f2937', borderRadius: 8,
-        paddingHorizontal: 14, paddingVertical: 10,
-        marginBottom: 14, alignSelf: 'stretch',
-    },
-    strategyText: { color: '#94a3b8', fontSize: 14 },
+    modeBadge: { marginBottom: 24, alignItems: 'flex-start' },
+    modeBadgeText: { color: '#F8FAFC', fontSize: 26, fontWeight: '900', letterSpacing: 0.5 },
+    brandSubtitle: { fontSize: 14, color: '#94A3B8', fontWeight: '500', marginTop: 4, textTransform: 'uppercase', letterSpacing: 1 },
 
-    subjectSection: { marginBottom: 14 },
-    subjectLabel: { color: '#94a3b8', fontSize: 12, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 },
+    sectionLabel: { color: '#94A3B8', fontSize: 13, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '700' },
+    
+    subjectSection: { marginBottom: 30 },
     pill: {
-        paddingHorizontal: 16, paddingVertical: 8,
-        backgroundColor: '#1f2937', borderRadius: 20,
-        marginRight: 8, borderWidth: 1, borderColor: '#374151',
+        paddingHorizontal: 20, paddingVertical: 12,
+        backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 24,
+        marginRight: 10, borderWidth: 1, borderColor: '#1E293B',
     },
-    pillActive: { backgroundColor: 'rgba(59,91,219,0.3)', borderColor: '#3b5bdb' },
-    pillText: { color: '#9ca3af', fontSize: 13 },
-    pillTextActive: { color: '#fff' },
+    pillActive: { backgroundColor: 'rgba(37,99,235,0.2)', borderColor: '#3B82F6' },
+    pillText: { color: '#94A3B8', fontSize: 15, fontWeight: '600' },
+    pillTextActive: { color: '#E2E8F0' },
 
-    uploadBtn: {
-        backgroundColor: '#1f2937', padding: 16, borderRadius: 10,
-        borderWidth: 1, borderColor: '#3b5bdb', borderStyle: 'dashed',
-        alignItems: 'center'
+    inputField: {
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        color: '#F8FAFC',
+        borderRadius: 14,
+        padding: 18,
+        marginBottom: 12,
+        fontSize: 15,
+        borderWidth: 1,
+        borderColor: '#1E293B'
     },
-    uploadBtnText: { color: '#93c5fd', fontSize: 14, fontWeight: '600' },
 
-    progressSection: { marginBottom: 14 },
-    progressBarBg: {
-        height: 28, backgroundColor: '#1f2937', borderRadius: 8,
-        overflow: 'hidden', marginBottom: 8,
+    uploadDropzone: {
+        backgroundColor: 'rgba(255,255,255,0.01)', padding: 30, borderRadius: 16,
+        borderWidth: 1.5, borderColor: '#334155', borderStyle: 'dashed',
+        alignItems: 'center', justifyContent: 'center'
+    },
+    uploadDropzoneText: { color: '#94A3B8', fontSize: 15, fontWeight: '600' },
+
+    actionSection: { marginTop: 10 },
+    progressContainer: { marginBottom: 20 },
+    progressBarWrapper: {
+        height: 8, backgroundColor: '#1E293B', borderRadius: 4,
+        overflow: 'hidden', marginBottom: 10,
     },
     progressBarFill: {
-        height: '100%', backgroundColor: '#22c55e', borderRadius: 8,
+        height: '100%', backgroundColor: '#60A5FA', borderRadius: 4,
+        shadowColor: '#60A5FA', shadowOpacity: 0.8, shadowRadius: 10, elevation: 4
     },
-    progressText: { color: '#86efac', fontSize: 13, textAlign: 'center' },
+    progressLabel: { color: '#94A3B8', fontSize: 13, fontWeight: '600', alignSelf: 'center' },
 
-    inferenceBtn: {
-        backgroundColor: '#ef4444',
-        paddingVertical: 20, borderRadius: 12,
-        alignItems: 'center', marginTop: 6,
-    },
-    inferenceBtnDisabled: { backgroundColor: '#7f1d1d' },
-    inferenceBtnText: { color: '#fff', fontSize: 17, fontWeight: '800' }
+    deployBtn: { width: '100%', borderRadius: 16, overflow: 'hidden' },
+    deployBtnGradient: { paddingVertical: 20, alignItems: 'center', justifyContent: 'center' },
+    deployBtnText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
 });

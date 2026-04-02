@@ -96,17 +96,15 @@ class AlzheimerPredictor:
         return winner, confidence
 
     def patient_level_average(self, all_model_probs):
-        """Score Averaging with Expert Specificity Guard."""
-        # Balanced Weights: V4 (Sensitive) vs V1 (Specific)
+        """Score Averaging with Expert Weighted Sensitivity."""
+        # Sensitivity Bias: V4 (LSTM-based) is better at temporal Alzheimer detection
+        # V1 (CN-based) is better at basic spatial features.
         weights = []
         for i, (name, _) in enumerate(self.models):
-             prob = all_model_probs[i]
-             if name == 'V1' and prob[0] > 0.85:
-                  weights.append(0.80) # V1 Veto power for Healthy patients
-             elif name == 'V4':
-                  weights.append(0.53) # V4 Base
+             if name == 'V4':
+                  weights.append(0.55) # Increase V4 Sensitivity
              else:
-                  weights.append(0.47) # V1 Base
+                  weights.append(0.45) # Balance with V1
              
         if len(all_model_probs) != len(weights):
              avg_probs = np.mean(all_model_probs, axis=0)
@@ -168,19 +166,30 @@ class AlzheimerPredictor:
         # Many healthy adults are at 8.2Hz - our 8.5Hz was too aggressive.
         physically_healthy = (physical_ratio < 1.5) or (peak_freq >= 8.0)
         
-        # If AI says AD but the Physics (Standard 8Hz) say Healthy, force HC.
-        if winner_idx == 1 and physically_healthy:
-             print(f">>>> SENTINEL VETO (8Hz Std): AI said AD, but Physics ([Ratio:{physical_ratio:.2f}][Peak:{peak_freq:.1f}Hz]) say Healthy. Force HC.")
+        # --- EXPERT FIX: Soft Calibration ---
+        # 8.0Hz is the clinical standard. If AI said AD but physics are 100% healthy,
+        # only override if the AI confidence is "Low" (< 58%).
+        physically_healthy = (physical_ratio < 1.3) and (peak_freq >= 8.5)
+        
+        if winner_idx == 1 and physically_healthy and confidence < 0.58:
+             print(f">>>> SOFT VETO: AI slightly leans AD, but Physics are IDEAL. Force HC.")
              winner_idx = 0
-             confidence = 0.95 # Clinical confidence HC
+             confidence = 0.90
         
         print(f">>>> FINAL DIAGNOSIS: {self.class_names[winner_idx]} (Confidence: {confidence*100:.2f}%) [Ratio: {physical_ratio:.2f}][Peak: {peak_freq:.1f}Hz]")
         
         # Count total 1s segments for reporting
         reporting_segments = preprocess_eeg(raw_eeg, fs, segment_len_sec=1)
         
+        # --- PHASE 8: MCI Detection Logic ---
+        # If the confidence is below 60%, we classify it as Mild Cognitive Impairment (MCI).
+        final_diagnosis = self.class_names[winner_idx]
+        if confidence < 0.60:
+            final_diagnosis = "Mild Cognitive Impairment (MCI)"
+            print(">>>> OVERRIDING TO MCI (<60% Confidence)")
+        
         return {
-            "diagnosis": self.class_names[winner_idx],
+            "diagnosis": final_diagnosis,
             "confidence": f"{confidence * 100:.2f}%",
             "segments_analyzed": len(reporting_segments),
             "strategy": strategy,

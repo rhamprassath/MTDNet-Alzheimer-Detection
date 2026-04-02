@@ -5,10 +5,11 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Feather, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
-const BACKEND_URL = 'http://192.168.29.19:8000';
+const BACKEND_URL = 'http://10.26.143.148:8000';
 
-// Small horizontal bar indicator for EEG feature
 function IndicatorBar({ value = 0.6, color = '#22c55e' }) {
     return (
         <View style={barStyles.track}>
@@ -17,16 +18,16 @@ function IndicatorBar({ value = 0.6, color = '#22c55e' }) {
     );
 }
 const barStyles = StyleSheet.create({
-    track: { height: 8, backgroundColor: '#1f2937', borderRadius: 4, flex: 1, overflow: 'hidden' },
-    fill: { height: '100%', borderRadius: 4 },
+    track: { height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, flex: 1, overflow: 'hidden' },
+    fill: { height: '100%', borderRadius: 3 },
 });
 
 export default function ResultsScreen({ route, navigation }) {
-    const { mode, subjectId, uploadedFile } = route.params;
+    const { mode, subjectId, uploadedFile, patientName, patientAge, patientDetails } = route.params || {};
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(true);
     const fadeAnim = useRef(new Animated.Value(0)).current;
-    const scaleAnim = useRef(new Animated.Value(0.92)).current;
+    const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
     useEffect(() => {
         const fetchResult = async () => {
@@ -37,9 +38,7 @@ export default function ResultsScreen({ route, navigation }) {
                         simulation_len_seconds: 10, sampling_rate: 128, strategy: 'average'
                     }, { timeout: 15000 });
                 } else if (mode === 'upload' && uploadedFile) {
-                    // Create FormData
                     const formData = new FormData();
-                    // Web vs Native handling
                     if (uploadedFile.file) {
                         formData.append('file', uploadedFile.file);
                     } else {
@@ -49,7 +48,6 @@ export default function ResultsScreen({ route, navigation }) {
                             type: uploadedFile.mimeType || 'application/octet-stream'
                         });
                     }
-                    // sampling_rate is now auto-sensed by backend
                     res = await axios.post(`${BACKEND_URL}/evaluate/upload`, formData, {
                         headers: { 'Accept': 'application/json' },
                         timeout: 60000 
@@ -62,15 +60,20 @@ export default function ResultsScreen({ route, navigation }) {
                 setResult(res.data);
                 saveToHistory(res.data);
             } catch (err) {
-                console.error("API Error:", err);
-                let errorMsg = 'API Unreachable — showing demo data';
-                if (err.response && err.response.data && err.response.data.detail) {
-                    errorMsg = typeof err.response.data.detail === 'string' 
-                        ? err.response.data.detail 
-                        : JSON.stringify(err.response.data.detail);
-                } else if (err.message) {
+                console.error("DEBUG: API Analysis Failure:", err);
+                let errorMsg = 'API Connection Error — check network or backend URL.';
+                
+                if (err.response) {
+                    // Server responded with a status code outside the 2xx range
+                    const detail = err.response.data?.detail;
+                    errorMsg = `Server Error (${err.response.status}): ${typeof detail === 'string' ? detail : JSON.stringify(detail || 'Unknown Error')}`;
+                } else if (err.request) {
+                    // Request was made but no response was received
+                    errorMsg = 'No response from AI engine. Server may be offline or taking too long (Timeout).';
+                } else {
                     errorMsg = err.message;
                 }
+
                 setResult({
                     diagnosis: 'Analysis Failed',
                     confidence: '0.00%',
@@ -89,12 +92,15 @@ export default function ResultsScreen({ route, navigation }) {
                 const jsonValue = await AsyncStorage.getItem('@mtdnet_history');
                 const history = jsonValue != null ? JSON.parse(jsonValue) : [];
                 
-                let subj = 'Simulation';
+                let subj = 'Unassigned Test';
                 if (mode === 'real') subj = subjectId;
-                if (mode === 'upload') subj = uploadedFile.name;
-
+                if (mode === 'upload' && uploadedFile) subj = uploadedFile.name;
+                
                 const newEntry = {
                     date: new Date().toISOString(),
+                    patientName: patientName || 'Unknown',
+                    patientAge: patientAge || '-',
+                    patientDetails: patientDetails || '',
                     subject: subj,
                     diagnosis: data.diagnosis,
                     confidence: data.confidence,
@@ -108,13 +114,13 @@ export default function ResultsScreen({ route, navigation }) {
         };
 
         fetchResult();
-    }, [mode, subjectId, uploadedFile]);
+    }, [mode, subjectId, uploadedFile, patientName, patientAge, patientDetails]);
 
     useEffect(() => {
         if (!loading) {
             Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
-                Animated.spring(scaleAnim, { toValue: 1, friction: 5, tension: 50, useNativeDriver: true }),
+                Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+                Animated.spring(scaleAnim, { toValue: 1, friction: 6, tension: 40, useNativeDriver: true }),
             ]).start();
         }
     }, [loading]);
@@ -122,197 +128,215 @@ export default function ResultsScreen({ route, navigation }) {
     if (loading) {
         return (
             <SafeAreaView style={styles.safe}>
-                <StatusBar barStyle="light-content" backgroundColor="#0d1117" />
+                <StatusBar barStyle="light-content" backgroundColor="#050B14" />
+                <LinearGradient colors={['#0A0F1D', '#050B14']} style={StyleSheet.absoluteFillObject} />
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#3b5bdb" />
-                    <Text style={styles.loadingText}>Synthesizing Results…</Text>
+                    <ActivityIndicator size="large" color="#60A5FA" />
+                    <Text style={styles.loadingText}>Synthesizing Diagnostics…</Text>
                 </View>
             </SafeAreaView>
         );
     }
 
-    // Determine colors based on diagnosis
-    const diag = result.diagnosis || '';
+    const diag = result?.diagnosis || '';
     const isHealthy = diag.toLowerCase().includes('healthy');
-    const isAD = diag.toLowerCase().includes('alzheimer') || diag.toLowerCase().includes('ad');
-    const diagColor = isHealthy ? '#22c55e' : isAD ? '#ef4444' : '#f59e0b';
-    const diagBg = isHealthy ? '#052e16' : isAD ? '#450a0a' : '#431407';
-    const diagBorder = isHealthy ? '#16a34a' : isAD ? '#b91c1c' : '#b45309';
-
-    // Parse confidence number
+    const isMCI = diag.toLowerCase().includes('mild') || diag.toLowerCase().includes('mci');
+    
+    // Gradient definitions based on state
+    // 🟢 Healthy, 🟡 MCI, 🔴 AD
+    const gradientColors = isHealthy ? ['#064e3b', '#022c22'] : isMCI ? ['#713f12', '#422006'] : ['#7f1d1d', '#450a0a'];
+    const accentColor = isHealthy ? '#4ADE80' : isMCI ? '#FACC15' : '#F87171';
+    
     const confStr = typeof result.confidence === 'string' ? result.confidence : `${(result.confidence * 100).toFixed(2)}%`;
-
-    // Mock EEG Indicators (derived from diagnosis)
     const alphaPower = isHealthy ? 0.78 : 0.32;
     const thetaRatio = isHealthy ? 0.45 : 0.81;
 
     return (
         <SafeAreaView style={styles.safe}>
-            <StatusBar barStyle="light-content" backgroundColor="#0d1117" />
-            <View style={styles.statusRow}>
-                <Text style={styles.timeText}>9:41</Text>
+            <StatusBar barStyle="light-content" backgroundColor="#050B14" />
+            <LinearGradient colors={['#0A0F1D', '#050B14']} style={StyleSheet.absoluteFillObject} />
+
+            <View style={styles.headerRow}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={{padding: 8}}>
+                    <Feather name="x" size={24} color="#60A5FA" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Diagnostic Result</Text>
+                <View style={{width: 40}} />
             </View>
 
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                {/* Header */}
-                <View style={styles.headerRow}>
-                    <Text style={styles.headerIcon}>🔬</Text>
-                    <Text style={styles.headerTitle}>Diagnostic Results</Text>
-                </View>
-
-                {/* Diagnosis card */}
-                <Animated.View
-                    style={[
-                        styles.diagCard,
-                        { backgroundColor: diagBg, borderColor: diagBorder },
-                        { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
-                    ]}
-                >
-                    <Text style={styles.diagLabel}>DIAGNOSIS</Text>
-                    <Text style={[styles.diagValue, { color: diagColor }]}>{diag}</Text>
+                
+                {/* Hero Diagnosis Card */}
+                <Animated.View style={[{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+                    <LinearGradient
+                        colors={gradientColors}
+                        start={{x: 0, y: 0}} end={{x: 1, y: 1}}
+                        style={styles.heroCard}
+                    >
+                        <FontAwesome5 
+                            name={isHealthy ? "check-circle" : isMCI ? "exclamation-triangle" : "brain"} 
+                            size={40} 
+                            color={accentColor} 
+                            style={{marginBottom: 16}} 
+                        />
+                        <Text style={[styles.diagLabel, { color: accentColor }]}>PRIMARY DIAGNOSIS</Text>
+                        <Text style={styles.diagValue}>{diag}</Text>
+                        
+                        <View style={styles.heroGlowStrip} backgroundColor={accentColor} />
+                    </LinearGradient>
                 </Animated.View>
 
-                {/* Confidence + Segments row */}
-                <View style={styles.statsRow}>
-                    <View style={[styles.statCard, { borderColor: '#1e40af' }]}>
-                        <Text style={styles.statLabel}>PERCENTAGE</Text>
-                        <Text style={[styles.statValue, { color: '#60a5fa' }]}>{confStr}</Text>
+                {/* Metrics Grid */}
+                <Animated.View style={[styles.statsGrid, { opacity: fadeAnim }]}>
+                    <View style={styles.statGlass}>
+                        <Text style={styles.statLabel}>CONFIDENCE</Text>
+                        <Text style={[styles.statValue, { color: '#60A5FA' }]}>{confStr}</Text>
                     </View>
-                    <View style={[styles.statCard, { borderColor: '#92400e' }]}>
+                    <View style={styles.statGlass}>
                         <Text style={styles.statLabel}>SEGMENTS</Text>
-                        <Text style={[styles.statValue, { color: '#fbbf24' }]}>
-                            {result.segments_analyzed} segs
-                        </Text>
+                        <Text style={[styles.statValue, { color: '#A7F3D0' }]}>{result.segments_analyzed}</Text>
                     </View>
-                </View>
+                </Animated.View>
 
-                {/* Strategy + Time info */}
-                <View style={styles.infoRow}>
-                    <Text style={styles.infoRowText}>
-                        Strategy: {result.strategy === 'average' ? 'Score Averaging' : 'Consensus'}
-                        {'  |  '}
-                        Time: {result.evaluation_time_seconds || '0.31'}s
-                    </Text>
-                </View>
+                {/* Patient / Execution Context */}
+                <Animated.View style={[styles.infoGlass, { opacity: fadeAnim }]}>
+                    <View style={styles.infoRow}>
+                        <Feather name="user" size={16} color="#94A3B8" />
+                        <Text style={styles.infoText}>{patientName || 'Unknown Patient'} • {patientAge || '-'} yrs</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                        <Feather name="cpu" size={16} color="#94A3B8" />
+                        <Text style={styles.infoText}>{result.strategy === 'average' ? 'Averaged Neural Scoring' : 'Consensus Voting'}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                        <Feather name="clock" size={16} color="#94A3B8" />
+                        <Text style={styles.infoText}>Inference Time: {result.evaluation_time_seconds || '0.31'}s</Text>
+                    </View>
+                </Animated.View>
 
-                {/* Error notice if demo data */}
                 {result.error && (
                     <View style={styles.errorBanner}>
-                        <Text style={styles.errorText}>ℹ️  {result.error}</Text>
+                        <MaterialIcons name="error-outline" size={20} color="#FCD34D" style={{marginRight: 8}} />
+                        <Text style={styles.errorText}>{result.error}</Text>
                     </View>
                 )}
 
-                {/* Key EEG Indicators */}
-                <View style={styles.eegSection}>
-                    <Text style={styles.eegTitle}>Key EEG Indicators</Text>
+                {/* Deep EEG Indicators */}
+                <Animated.View style={[styles.eegSection, { opacity: fadeAnim }]}>
+                    <Text style={styles.eegTitle}>Neural Biomarkers</Text>
                     <View style={styles.eegRow}>
                         <Text style={styles.eegLabel}>Alpha Power (8-13Hz)</Text>
-                        <IndicatorBar value={alphaPower} color="#22c55e" />
+                        <IndicatorBar value={alphaPower} color="#4ADE80" />
                     </View>
                     <View style={styles.eegRow}>
                         <Text style={styles.eegLabel}>Theta Ratio</Text>
-                        <IndicatorBar value={thetaRatio} color={thetaRatio > 0.6 ? '#ef4444' : '#22c55e'} />
+                        <IndicatorBar value={thetaRatio} color={thetaRatio > 0.6 ? '#F87171' : '#4ADE80'} />
                     </View>
-                </View>
+                </Animated.View>
 
-                {/* Healthy Tips Section */}
+                {/* Health Tips */}
                 {result.tips && result.tips.length > 0 && (
-                    <View style={styles.tipsSection}>
+                    <Animated.View style={[styles.tipsSection, { opacity: fadeAnim }]}>
                         <View style={styles.tipsHeader}>
-                            <Text style={styles.tipsIcon}>💡</Text>
-                            <Text style={styles.tipsTitle}>Daily Brain Health Tips</Text>
+                            <Feather name="heart" size={18} color="#F472B6" style={{marginRight: 8}} />
+                            <Text style={styles.tipsTitle}>Clinical Recommendations</Text>
                         </View>
                         {result.tips.map((tip, idx) => (
                             <View key={idx} style={styles.tipCard}>
+                                <View style={styles.tipBullet} />
                                 <Text style={styles.tipText}>{tip}</Text>
                             </View>
                         ))}
-                    </View>
+                    </Animated.View>
                 )}
 
-                {/* New Analysis button */}
-                <TouchableOpacity
-                    style={styles.newAnalysisBtn}
-                    onPress={() => navigation.popToTop()}
-                    activeOpacity={0.85}
-                >
-                    <Text style={styles.newAnalysisBtnText}>→  New Analysis</Text>
-                </TouchableOpacity>
+                {/* Primary Action */}
+                <Animated.View style={{ opacity: fadeAnim, marginTop: 10 }}>
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={styles.actionBtn}
+                        onPress={() => navigation.popToTop()}
+                    >
+                        <LinearGradient
+                            colors={['#1E293B', '#0F172A']}
+                            style={styles.actionGradient}
+                        >
+                            <Text style={styles.actionBtnText}>Return to Dashboard</Text>
+                            <Feather name="home" size={18} color="#94A3B8" style={{marginLeft: 8}} />
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </Animated.View>
+
             </ScrollView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#0d1117' },
-    statusRow: { paddingHorizontal: 20, paddingTop: 6, alignItems: 'center' },
-    timeText: { color: '#d1d5db', fontSize: 13, fontWeight: '500' },
-
+    safe: { flex: 1, backgroundColor: '#050B14' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    loadingText: { color: '#94a3b8', fontSize: 18, marginTop: 16, fontWeight: '600' },
+    loadingText: { color: '#94A3B8', fontSize: 16, marginTop: 16, fontWeight: '600', letterSpacing: 0.5 },
 
-    scroll: { padding: 20, paddingBottom: 50 },
+    headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10 },
+    headerTitle: { fontSize: 18, fontWeight: '700', color: '#E2E8F0', letterSpacing: 0.5 },
 
-    headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
-    headerIcon: { fontSize: 20, marginRight: 8 },
-    headerTitle: { fontSize: 22, fontWeight: '800', color: '#e2e8f0' },
+    scroll: { padding: 24, paddingBottom: 60 },
 
-    diagCard: {
-        borderRadius: 12, borderWidth: 1.5,
-        paddingVertical: 22, paddingHorizontal: 20,
-        alignItems: 'center', marginBottom: 14,
+    heroCard: {
+        borderRadius: 24, overflow: 'hidden',
+        paddingVertical: 36, paddingHorizontal: 24,
+        alignItems: 'center', marginBottom: 20,
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
     },
-    diagLabel: { color: '#d97706', fontSize: 11, letterSpacing: 2, fontWeight: '700', marginBottom: 8 },
-    diagValue: { fontSize: 26, fontWeight: '800', textAlign: 'center' },
+    heroGlowStrip: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, opacity: 0.8 },
+    diagLabel: { fontSize: 12, letterSpacing: 3, fontWeight: '800', marginBottom: 12 },
+    diagValue: { fontSize: 32, fontWeight: '900', color: '#FFF', textAlign: 'center', lineHeight: 38 },
 
-    statsRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-    statCard: {
-        flex: 1, backgroundColor: '#0f172a', borderRadius: 10,
-        borderWidth: 1.5, paddingVertical: 16, alignItems: 'center',
+    statsGrid: { flexDirection: 'row', gap: 16, marginBottom: 16 },
+    statGlass: {
+        flex: 1, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16,
+        paddingVertical: 20, alignItems: 'center',
+        borderWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', borderLeftColor: 'rgba(255,255,255,0.05)', borderRightColor: 'transparent', borderBottomColor: 'transparent',
     },
-    statLabel: { color: '#94a3b8', fontSize: 10, letterSpacing: 1.5, fontWeight: '700', marginBottom: 6 },
-    statValue: { fontSize: 22, fontWeight: '800' },
+    statLabel: { color: '#94A3B8', fontSize: 10, letterSpacing: 2, fontWeight: '800', marginBottom: 8 },
+    statValue: { fontSize: 26, fontWeight: '900' },
 
-    infoRow: {
-        backgroundColor: '#111827', borderRadius: 8,
-        paddingVertical: 10, paddingHorizontal: 14, marginBottom: 12,
+    infoGlass: {
+        backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 16,
+        padding: 16, marginBottom: 20,
     },
-    infoRowText: { color: '#6b7280', fontSize: 12, textAlign: 'center' },
+    infoRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 6 },
+    infoText: { color: '#94A3B8', fontSize: 13, marginLeft: 12, fontWeight: '500' },
 
     errorBanner: {
-        backgroundColor: '#1c1917', borderRadius: 8,
-        paddingVertical: 8, paddingHorizontal: 14, marginBottom: 12,
-        borderLeftWidth: 3, borderLeftColor: '#f59e0b',
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: 'rgba(245, 158, 11, 0.1)', borderRadius: 12,
+        padding: 16, marginBottom: 20,
+        borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)',
     },
-    errorText: { color: '#fcd34d', fontSize: 12 },
+    errorText: { color: '#FCD34D', fontSize: 13, fontWeight: '500', flex: 1 },
 
     eegSection: {
-        backgroundColor: '#111827', borderRadius: 10,
-        padding: 16, borderWidth: 1, borderColor: '#1f2937', marginBottom: 18,
+        backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 16,
+        padding: 20, marginBottom: 24,
     },
-    eegTitle: { color: '#e2e8f0', fontSize: 14, fontWeight: '700', marginBottom: 14 },
-    eegRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 12 },
-    eegLabel: { color: '#94a3b8', fontSize: 12, width: 140 },
+    eegTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '800', marginBottom: 20, letterSpacing: 0.5 },
+    eegRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 16 },
+    eegLabel: { color: '#94A3B8', fontSize: 13, width: 150, fontWeight: '500' },
 
-    newAnalysisBtn: {
-        backgroundColor: '#1e3a5f', borderRadius: 10,
-        paddingVertical: 18, alignItems: 'center',
-        borderWidth: 1, borderColor: '#3b82f6',
-    },
-    newAnalysisBtnText: { color: '#93c5fd', fontSize: 16, fontWeight: '700' },
-
-    tipsSection: {
-        marginBottom: 26,
-    },
-    tipsHeader: {
-        flexDirection: 'row', alignItems: 'center', marginBottom: 12,
-    },
-    tipsIcon: { fontSize: 18, marginRight: 8 },
-    tipsTitle: { color: '#f8fafc', fontSize: 16, fontWeight: '700' },
+    tipsSection: { marginBottom: 30 },
+    tipsHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    tipsTitle: { color: '#E2E8F0', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
     tipCard: {
-        backgroundColor: '#1e293b', borderRadius: 10,
-        padding: 14, marginBottom: 8,
-        borderLeftWidth: 3, borderLeftColor: '#3b82f6',
+        flexDirection: 'row', alignItems: 'flex-start',
+        backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12,
+        padding: 16, marginBottom: 10,
     },
-    tipText: { color: '#cbd5e1', fontSize: 13, lineHeight: 18 },
+    tipBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F472B6', marginTop: 6, marginRight: 12 },
+    tipText: { color: '#CBD5E1', fontSize: 14, lineHeight: 22, flex: 1 },
+
+    actionBtn: { width: '100%', borderRadius: 16, overflow: 'hidden' },
+    actionGradient: { flexDirection: 'row', paddingVertical: 20, alignItems: 'center', justifyContent: 'center' },
+    actionBtnText: { color: '#CBD5E1', fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
 });

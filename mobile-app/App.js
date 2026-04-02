@@ -7,6 +7,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import AnalysisScreen from './src/screens/AnalysisScreen';
 import ResultsScreen from './src/screens/ResultsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
+import PatientProfileScreen from './src/screens/PatientProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -25,6 +26,7 @@ export default function App() {
         <Stack.Screen name="Analysis" component={AnalysisScreen} />
         <Stack.Screen name="Results" component={ResultsScreen} />
         <Stack.Screen name="History" component={HistoryScreen} />
+        <Stack.Screen name="PatientProfile" component={PatientProfileScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

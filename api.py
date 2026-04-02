@@ -43,13 +43,19 @@ BRAIN_HEALTH_TIPS = {
         "Cognitive Training: Use memory-focused apps or games daily.",
         "Stress Management: Practice mindfulness or light yoga to reduce cortisol levels.",
         "Consistent Routine: Maintain a structured daily schedule to reduce confusion."
+    ],
+    "Mild Cognitive Impairment (MCI)": [
+        "Monitor Diet: Focus heavily on B-vitamins and Omega-3 rich foods.",
+        "Medical Consultation: Regular check-ins with a neurologist to monitor progression.",
+        "Daily Physical Activity: Regular walks to boost neurogenesis.",
+        "Reduce Toxins: Limit alcohol and quit smoking entirely to protect brain cells."
     ]
 }
 
 # Data directory fallback
-processed_dir = r"d:\al project\processed_v2"
+processed_dir = os.path.join(os.path.dirname(__file__), "processed_v2")
 if not os.path.exists(processed_dir):
-    processed_dir = r"d:\al project\processed_data"
+    processed_dir = os.path.join(os.path.dirname(__file__), "processed_data")
 
 class SimulationRequest(BaseModel):
     simulation_len_seconds: int = 10
@@ -107,6 +113,7 @@ def evaluate_simulated(request: SimulationRequest):
 @app.post("/evaluate/real")
 def evaluate_real(request: RealDataRequest):
     """Evaluate preprocessed real subject data."""
+    print(f"INFO: [evaluate/real] Request for Subject: {request.subject_id}, Strategy: {request.strategy}")
     subject_file = os.path.join(processed_dir, f"{request.subject_id}.npz")
     if not os.path.exists(subject_file):
         raise HTTPException(status_code=404, detail="Subject data not found.")
@@ -150,8 +157,7 @@ def evaluate_real(request: RealDataRequest):
 @app.post("/evaluate/upload")
 async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[int] = Form(None)):
     """Evaluate an uploaded raw .edf, .csv, .set, or .npz file with Auto-Sensing FS."""
-    
-    # Create temp file
+    print(f"INFO: [evaluate/upload] Received File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'Unknown'} bytes")
     temp_dir = tempfile.gettempdir()
     temp_path = os.path.join(temp_dir, file.filename)
     
@@ -219,6 +225,8 @@ async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[
                 else:
                      data = numeric_df.values.T
                      
+                if fs is None:
+                     print("WARNING: [CSV] No Sampling Rate provided in Form. Defaulting to 128Hz. Results may be inaccurate.")
                 fs = sampling_rate # Dynamic ingestion!
                 
             elif temp_path.endswith('.set'):
