@@ -239,9 +239,10 @@ async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[
                 else:
                      data = numeric_df.values.T
                      
-                if fs is None:
-                     print("WARNING: [CSV] No Sampling Rate provided in Form. Defaulting to 128Hz. Results may be inaccurate.")
-                fs = sampling_rate # Dynamic ingestion!
+                # Use provided sampling_rate or default to 128
+                fs = sampling_rate if sampling_rate is not None else 128
+                if sampling_rate is None:
+                    print("WARNING: [CSV] No Sampling Rate provided in Form. Defaulting to 128Hz.")
                 
             elif temp_path.endswith('.set'):
                 raw = mne.io.read_raw_eeglab(temp_path, preload=True, verbose=False)
