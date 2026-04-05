@@ -11,6 +11,46 @@ from model import MTDNet
 from utils import preprocess_eeg
 
 
+import torch.nn as nn
+
+class MTDNetV5(nn.Module):
+    """High-Stability Clinical Architecture."""
+    def __init__(self, n_channels=19, n_features=32, n_classes=2, dropout=0.5):
+        super(MTDNetV5, self).__init__()
+        self.scale1 = nn.Sequential(
+            nn.Conv1d(n_channels, n_features, kernel_size=10, stride=5),
+            nn.BatchNorm1d(n_features), nn.ReLU(), nn.Dropout(dropout)
+        )
+        self.scale2 = nn.Sequential(
+            nn.Conv1d(n_channels, n_features, kernel_size=5, stride=2),
+            nn.BatchNorm1d(n_features), nn.ReLU(), nn.Dropout(dropout),
+            nn.AvgPool1d(kernel_size=2, stride=2)
+        )
+        self.lstm = nn.LSTM(
+            input_size=n_features * 2,
+            hidden_size=32,
+            num_layers=2,
+            batch_first=True,
+            dropout=dropout
+        )
+        self.lstm_drop = nn.Dropout(dropout)
+        self.classifier = nn.Sequential(
+            nn.Linear(32, 16),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.Dropout(dropout * 0.5),
+            nn.Linear(16, n_classes)
+        )
+    def forward(self, x):
+        f1 = self.scale1(x)
+        f2 = self.scale2(x)
+        min_len = min(f1.size(2), f2.size(2))
+        f1, f2 = f1[:,:,:min_len], f2[:,:,:min_len]
+        features = torch.cat([f1, f2], dim=1).transpose(1, 2)
+        out, _ = self.lstm(features)
+        last_out = self.lstm_drop(out[:, -1, :])
+        return self.classifier(last_out)
+
 class AlzheimerPredictor:
     def __init__(self, n_channels=19):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -27,19 +67,18 @@ class AlzheimerPredictor:
             self.models.append(('V1', model_v1))
             print(f"Loaded V1 model from {v1_path}")
         
-        # Load V4 model (4s segments, n_features=32)
-        v4_path = "mtdnet_v4_best.pth"
-        if os.path.exists(v4_path):
+        # Load Master V5 model (Clinical Ensemble)
+        v5_path = "mtdnet_v5_best.pth"
+        if os.path.exists(v5_path):
             try:
-                from train_v4 import MTDNetV4
-                model_v4 = MTDNetV4(n_channels=n_channels, n_features=32, n_classes=2)
-                model_v4.load_state_dict(torch.load(v4_path, map_location=self.device))
-                model_v4.to(self.device)
-                model_v4.eval()
-                self.models.append(('V4', model_v4))
-                print(f"Loaded V4 model from {v4_path}")
+                model_v5 = MTDNetV5(n_channels=n_channels, n_features=32, n_classes=2)
+                model_v5.load_state_dict(torch.load(v5_path, map_location=self.device))
+                model_v5.to(self.device)
+                model_v5.eval()
+                self.models.append(('V5', model_v5))
+                print(f"Loaded Master V5 model from {v5_path}")
             except Exception as e:
-                print(f"Could not load V4: {e}")
+                print(f"Could not load V5: {e}")
         
         if not self.models:
             print("WARNING: No models loaded!")
@@ -50,8 +89,8 @@ class AlzheimerPredictor:
         
         with torch.no_grad():
             for name, model in self.models:
-                # V4 requires exactly 4-second segments for LSTM depth. V1 expects 1-second.
-                seg_len = 4 if name == 'V4' else 1
+                # V5/V4 requires exactly 4-second segments for LSTM depth. V1 expects 1-second.
+                seg_len = 4 if name in ['V5', 'V4'] else 1
                 segments = preprocess_eeg(raw_eeg, fs, segment_len_sec=seg_len)
                 
                 if not segments:
@@ -83,8 +122,8 @@ class AlzheimerPredictor:
             # give it a "Veto" weight against false AD alarms.
             if name == 'V1' and prob[0] > 0.85:
                  weight = 0.80 # V1 Veto Power
-            elif name == 'V4':
-                 weight = 0.53 # V4 Dominance
+            elif name in ['V5', 'V4']:
+                 weight = 0.53 # Main Model Dominance
             else:
                  weight = 0.47 # V1 Base Weight
             
@@ -101,8 +140,8 @@ class AlzheimerPredictor:
         # V1 (CN-based) is better at basic spatial features.
         weights = []
         for i, (name, _) in enumerate(self.models):
-             if name == 'V4':
-                  weights.append(0.55) # Increase V4 Sensitivity
+             if name in ['V5', 'V4']:
+                  weights.append(0.55) # Increase Main Model Sensitivity
              else:
                   weights.append(0.45) # Balance with V1
              
