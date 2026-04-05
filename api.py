@@ -138,15 +138,25 @@ def evaluate_real(request: RealDataRequest):
              
         eval_time = time.time() - start_time
         
+        # Safely handle MCI mapping for binary accuracy
+        pred_diag = result["diagnosis"]
+        if pred_diag == "Mild Cognitive Impairment (MCI)":
+            pred_idx = 1 # Treat leaning as AD for binary assessment
+        else:
+            try:
+                pred_idx = predictor.class_names.index(pred_diag)
+            except ValueError:
+                pred_idx = -1
+                
         return {
-            "diagnosis": result["diagnosis"],
+            "diagnosis": pred_diag,
             "confidence": result["confidence"],
             "segments_analyzed": result["segments_analyzed"],
             "strategy": result["strategy"],
             "true_label": predictor.class_names[y_true],
             "evaluation_time_seconds": round(eval_time, 2),
-            "is_correct": bool(predictor.class_names.index(result["diagnosis"]) == y_true),
-            "tips": BRAIN_HEALTH_TIPS.get(result["diagnosis"], BRAIN_HEALTH_TIPS["Healthy Control (HC)"])
+            "is_correct": bool(pred_idx == y_true),
+            "tips": BRAIN_HEALTH_TIPS.get(pred_diag, BRAIN_HEALTH_TIPS["Healthy Control (HC)"])
         }
     except Exception as e:
         import traceback
@@ -178,6 +188,10 @@ async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[
             # Load raw data
             if temp_path.endswith('.edf'):
                 raw = mne.io.read_raw_edf(temp_path, preload=True, verbose=False)
+                # Master-Level Upgrade: Strict Spatial Filtering
+                # If >19 channels, try to pick the first 19 (typically EEG before EKG/refs)
+                if len(raw.ch_names) > 19:
+                    raw.pick(raw.ch_names[:19])
                 fs = raw.info['sfreq']
                 data = raw.get_data() # (channels, samples)
             elif temp_path.endswith('.csv'):
@@ -231,6 +245,8 @@ async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[
                 
             elif temp_path.endswith('.set'):
                 raw = mne.io.read_raw_eeglab(temp_path, preload=True, verbose=False)
+                if len(raw.ch_names) > 19:
+                    raw.pick(raw.ch_names[:19])
                 fs = raw.info['sfreq']
                 data = raw.get_data()
             elif temp_path.endswith('.npz'):
@@ -254,11 +270,16 @@ async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[
                  print(f"DEBUG: No FS detected. Defaulting to: {fs}Hz")
 
             if fs != 128:
-                print(f"DEBUG: Auto-Resampling from {fs}Hz to 128Hz...")
-                duration_sec = data.shape[1] / fs
-                target_samples = int(duration_sec * 128)
-                from scipy.signal import resample
-                data = resample(data, target_samples, axis=1)
+                print(f"DEBUG: Master-Level Resampling (Polyphase) from {fs}Hz to 128Hz...")
+                from scipy.signal import resample_poly
+                # Calculate up/down factors
+                # target is 128. Current is fs.
+                # up = 128, down = int(fs) -> simplify via gcd is handled internally by resample_poly usually, but let's be safe
+                import math
+                up = 128
+                down = int(fs)
+                gcd = math.gcd(up, down)
+                data = resample_poly(data, up // gcd, down // gcd, axis=1)
                 fs = 128
                 
             eval_time = time.time() - start_time

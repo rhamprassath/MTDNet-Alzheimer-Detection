@@ -19,42 +19,55 @@ def bandpass_filter(data, lowcut, highcut, fs, order=5):
     y = filtfilt(b, a, data, axis=-1)
     return y
 
-def segment_signal(data, fs, segment_len_sec=1):
+def segment_signal(data, fs, segment_len_sec=1, stride_sec=None):
     """
-    Split EEG signal into segments.
+    Split EEG signal into highly overlapping segments (Maximum Inference Strategy).
     data: (n_channels, total_samples)
     returns list of segments: (n_channels, fs * segment_len_sec)
     """
     segment_samples = int(fs * segment_len_sec)
+    
+    # Master-Level Upgrade: Overlapping Windows
+    # If stride not provided, default to 50% overlap for massive resolution boost.
+    if stride_sec is None:
+        stride_sec = segment_len_sec / 2.0
+        
+    stride_samples = int(fs * stride_sec)
     total_samples = data.shape[1]
-    n_segments = total_samples // segment_samples
     
     segments = []
-    for i in range(n_segments):
-        start = i * segment_samples
+    start = 0
+    while start + segment_samples <= total_samples:
         end = start + segment_samples
         segments.append(data[:, start:end])
+        start += stride_samples
     
     return segments
 
 def z_score_normalize(segment):
     """
-    Apply Per-Channel Z-score normalization.
-    Matches the exact training logic in data_loader.py.
+    Apply Robust Per-Channel Z-score normalization with Clinical Artifact Suppression.
     segment: (n_channels, n_samples)
     """
     mean = segment.mean(axis=1, keepdims=True)
     std = segment.std(axis=1, keepdims=True)
     
-    # Matching the 1e-8 epsilon from data_loader.py
-    return (segment - mean) / (std + 1e-8)
+    # Master-Level Upgrade: Winsorizing
+    # High-amplitude artifacts (e.g. 500uV blinks) distort the Z-score.
+    # We clip the pure signal at +/- 4 SDs so valid rhythms are preserved.
+    # Avoid div by zero safely
+    safe_std = std + 1e-8
+    z_scored = (segment - mean) / safe_std
+    np.clip(z_scored, -4.0, 4.0, out=z_scored) # In-place memory efficiency
+    
+    return z_scored
 
-def preprocess_eeg(data, fs, lowcut=0.5, highcut=45.0, segment_len_sec=1):
+def preprocess_eeg(data, fs, lowcut=0.5, highcut=45.0, segment_len_sec=1, stride_sec=None):
     """
-    Full preprocessing pipeline: Filter -> Segment -> Normalize
+    Full preprocessing pipeline: Filter -> Segment (Overlapping) -> Normalize (Robust)
     """
     filtered_data = bandpass_filter(data, lowcut, highcut, fs)
-    segments = segment_signal(filtered_data, fs, segment_len_sec=segment_len_sec)
+    segments = segment_signal(filtered_data, fs, segment_len_sec=segment_len_sec, stride_sec=stride_sec)
     normalized_segments = [z_score_normalize(s) for s in segments]
     return normalized_segments
 
