@@ -25,7 +25,8 @@ files_mapping = {
     "Dockerfile": "Dockerfile",
     "requirements_hf.txt": "requirements.txt",
     "mtdnet_best_npz.pth": "mtdnet_best_npz.pth",
-    "mtdnet_v4_best.pth": "mtdnet_v4_best.pth"
+    "mtdnet_v4_best.pth": "mtdnet_v4_best.pth",
+    "mtdnet_v5_best.pth": "mtdnet_v5_best.pth"
 }
 
 print("Uploading files to Space...")
