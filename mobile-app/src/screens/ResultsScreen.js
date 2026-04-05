@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
-const BACKEND_URL = 'http://10.26.143.148:8000';
+const BACKEND_URL = 'http://10.100.245.148:8000';
 
 function IndicatorBar({ value = 0.6, color = '#22c55e' }) {
     return (

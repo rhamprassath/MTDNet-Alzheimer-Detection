@@ -7,7 +7,7 @@ import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 
-const BACKEND_URL = 'http://10.26.143.148:8000'; // Mobile network endpoint
+const BACKEND_URL = 'http://10.100.245.148:8000'; // Local API URL
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }) {

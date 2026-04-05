@@ -9,7 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const BACKEND_URL = 'http://10.26.143.148:8000';
+const BACKEND_URL = 'http://10.100.245.148:8000';
 
 // Generates a mock EEG waveform path
 function generateWavePoints(count = 120, channelIndex = 0) {
