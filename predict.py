@@ -12,6 +12,15 @@ from utils import preprocess_eeg
 
 
 import torch.nn as nn
+import platform
+
+def is_jetson():
+    """Detect if the system is a Jetson Nano (aarch64)."""
+    return platform.machine() == 'aarch64'
+
+def clear_cuda_cache():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 class MTDNetV5(nn.Module):
     """High-Stability Clinical Architecture."""
@@ -74,6 +83,12 @@ class AlzheimerPredictor:
                 model_v5 = MTDNetV5(n_channels=n_channels, n_features=32, n_classes=2)
                 model_v5.load_state_dict(torch.load(v5_path, map_location=self.device))
                 model_v5.to(self.device)
+                
+                # --- JETSON OPTIMIZATION: FP16 ---
+                if is_jetson() and torch.cuda.is_available():
+                    print("INFO: Enabling FP16 (Half-Precision) for Jetson GPU optimization.")
+                    model_v5 = model_v5.half()
+                
                 model_v5.eval()
                 self.models.append(('V5', model_v5))
                 print(f"Loaded Master V5 model from {v5_path}")
@@ -99,9 +114,17 @@ class AlzheimerPredictor:
                 probs_list = []
                 for seg in segments:
                     input_tensor = torch.from_numpy(seg).float().unsqueeze(0).to(self.device)
+                    
+                    # Apply FP16 if on Jetson
+                    if is_jetson() and torch.cuda.is_available():
+                        input_tensor = input_tensor.half()
+                        
                     logits = model(input_tensor)
-                    probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                    probs = torch.softmax(logits, dim=1).cpu().float().numpy()[0]
                     probs_list.append(probs)
+                
+                # --- JETSON OPTIMIZATION: Memory Flush ---
+                if is_jetson(): clear_cuda_cache()
                 
                 if probs_list:
                     # Average all segment probs for this model to get Model-level Patient Prob
