@@ -246,9 +246,9 @@ class AlzheimerPredictor:
         # --- PHASE 8: MCI Detection Logic ---
         # If the confidence is below 60%, we classify it as Mild Cognitive Impairment (MCI).
         final_diagnosis = self.class_names[winner_idx]
-        if confidence < 0.60:
-            final_diagnosis = "Mild Cognitive Impairment (MCI)"
-            print(">>>> OVERRIDING TO MCI (<60% Confidence)")
+        # if confidence < 0.60:
+        #     final_diagnosis = "Mild Cognitive Impairment (MCI)"
+        #     print(">>>> OVERRIDING TO MCI (<60% Confidence)")
         
         return {
             "diagnosis": final_diagnosis,

@@ -8,3 +8,4 @@ mne
 pandas
 scikit-learn
 pydantic
+huggingface-hub

@@ -3,6 +3,7 @@ import glob
 import time
 import tempfile
 import mne
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,8 @@ from pydantic import BaseModel
 from typing import Optional
 import numpy as np
 from predict import AlzheimerPredictor
+import json
+from huggingface_hub import HfApi
 
 app = FastAPI(title="MTDNet Alzheimer's Detection API")
 
@@ -52,10 +55,66 @@ BRAIN_HEALTH_TIPS = {
     ]
 }
 
-# Data directory fallback
+# Data directory
 processed_dir = os.path.join(os.path.dirname(__file__), "processed_v2")
-if not os.path.exists(processed_dir):
-    processed_dir = os.path.join(os.path.dirname(__file__), "processed_data")
+os.makedirs(processed_dir, exist_ok=True)
+
+def seed_demo_subjects():
+    """Auto-generate realistic synthetic demo subjects if the database is empty."""
+    existing = glob.glob(os.path.join(processed_dir, "*.npz"))
+    if existing:
+        print(f"INFO: Database has {len(existing)} subjects. Skipping seed.")
+        return
+
+    print("INFO: Database empty. Auto-seeding demo subjects...")
+    FS = 128
+    DURATION = 30  # seconds of EEG per subject
+    SEG_LEN = 4    # 4-second segments
+    N_SEGS = DURATION // SEG_LEN
+    N_CH = 19
+    SAMPLES = SEG_LEN * FS
+
+    # Subject definitions: (id, label, dominant_freq_hz, noise_scale)
+    subjects = [
+        # Healthy Controls - strong alpha (8-12Hz), low noise
+        ("HC_Subject_01", 0, 10.0, 0.3),
+        ("HC_Subject_02", 0, 9.5,  0.25),
+        ("HC_Subject_03", 0, 11.0, 0.2),
+        # Mild Cognitive Impairment - mixed theta/alpha
+        ("MCI_Subject_01", 1, 6.5, 0.6),
+        ("MCI_Subject_02", 1, 7.0, 0.55),
+        ("MCI_Subject_03", 1, 5.5, 0.65),
+        # Alzheimer's Disease - dominant theta/delta, high noise
+        ("AD_Subject_01", 1, 4.0, 1.1),
+        ("AD_Subject_02", 1, 3.5, 1.2),
+        ("AD_Subject_03", 1, 5.0, 0.9),
+    ]
+
+    t = np.linspace(0, SEG_LEN, SAMPLES)
+    for sub_id, label, dom_freq, noise_sc in subjects:
+        segs = []
+        for _ in range(N_SEGS):
+            seg = np.zeros((N_CH, SAMPLES), dtype=np.float32)
+            for ch in range(N_CH):
+                phase = np.random.uniform(0, 2 * np.pi)
+                amp = np.random.uniform(0.8, 1.2)
+                # Dominant rhythm + harmonics + noise
+                sig = (amp * np.sin(2 * np.pi * dom_freq * t + phase)
+                       + 0.3 * np.sin(2 * np.pi * (dom_freq * 2) * t + phase)
+                       + noise_sc * np.random.randn(SAMPLES))
+                # Z-score normalize per channel
+                sig = (sig - sig.mean()) / (sig.std() + 1e-8)
+                seg[ch] = sig.astype(np.float32)
+            segs.append(seg)
+        block = np.array(segs, dtype=np.float32)
+        out_path = os.path.join(processed_dir, f"{sub_id}.npz")
+        np.savez(out_path, x=block, y=label)
+        print(f"INFO: Seeded {sub_id} (label={label})")
+
+    print("INFO: Demo subject database ready with 9 subjects.")
+
+# Seed on startup
+seed_demo_subjects()
 
 class SimulationRequest(BaseModel):
     simulation_len_seconds: int = 10
@@ -65,6 +124,15 @@ class SimulationRequest(BaseModel):
 class RealDataRequest(BaseModel):
     subject_id: str
     strategy: str = "average"
+
+@app.get("/")
+def read_root():
+    """Welcome message for the MTDNet Alzheimer's Detection API."""
+    return {
+        "status": "online",
+        "system": "MTDNet Alzheimer's Detection Engine",
+        "message": "Welcome! Use /health to check system status or the mobile app for diagnostics."
+    }
 
 @app.get("/health")
 def health_check():
@@ -165,8 +233,14 @@ def evaluate_real(request: RealDataRequest):
         raise HTTPException(status_code=500, detail=f"Analysis Engine Error: {str(e)}")
 
 @app.post("/evaluate/upload")
-async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[int] = Form(None)):
-    """Evaluate an uploaded raw .edf, .csv, .set, or .npz file with Auto-Sensing FS."""
+async def evaluate_upload(
+    file: UploadFile = File(...), 
+    sampling_rate: Optional[int] = Form(None),
+    patient_name: Optional[str] = Form(None),
+    patient_age: Optional[str] = Form(None),
+    patient_notes: Optional[str] = Form(None)
+):
+    """Evaluate an uploaded raw .edf, .csv, .set, or .npz file with automated HF Persistence."""
     print(f"INFO: [evaluate/upload] Received File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'Unknown'} bytes")
     temp_dir = tempfile.gettempdir()
     temp_path = os.path.join(temp_dir, file.filename)
@@ -290,6 +364,52 @@ async def evaluate_upload(file: UploadFile = File(...), sampling_rate: Optional[
             if "error" in result:
                  raise HTTPException(status_code=400, detail=result["error"])
                  
+            # --- PERSIST DATA TO HUGGING FACE ---
+            hf_token = os.environ.get("HF_TOKEN")
+            if hf_token:
+                try:
+                    hf_api = HfApi(token=hf_token)
+                    repo_id = "RHAMPRASSATH/MTDNet-Alzheimer-Detector"
+                    timestamp = int(time.time())
+                    safe_name = (patient_name or "unknown").replace(" ", "_").lower()
+                    folder = f"patient_data/{safe_name}_{timestamp}"
+                    
+                    # 1. Upload original file
+                    hf_api.upload_file(
+                        path_or_fileobj=temp_path,
+                        path_in_repo=f"{folder}/{file.filename}",
+                        repo_id=repo_id,
+                        repo_type="space"
+                    )
+                    
+                    # 2. Upload Metadata JSON
+                    meta = {
+                        "patient_name": patient_name,
+                        "patient_age": patient_age,
+                        "patient_notes": patient_notes,
+                        "diagnosis": result["diagnosis"],
+                        "confidence": result["confidence"],
+                        "timestamp": timestamp,
+                        "filename": file.filename
+                    }
+                    meta_path = os.path.join(temp_dir, f"meta_{timestamp}.json")
+                    with open(meta_path, "w") as f:
+                        json.dump(meta, f)
+                    
+                    hf_api.upload_file(
+                        path_or_fileobj=meta_path,
+                        path_in_repo=f"{folder}/metadata.json",
+                        repo_id=repo_id,
+                        repo_type="space"
+                    )
+                    print(f"INFO: Successfully persisted data to HF: {folder}")
+                    if os.path.exists(meta_path):
+                        os.remove(meta_path)
+                except Exception as hf_err:
+                    print(f"WARNING: Hugging Face Persistence Failed: {hf_err}")
+            else:
+                print("WARNING: HF_TOKEN not found. Persistence skipped.")
+
             return {
                 "diagnosis": result["diagnosis"],
                 "confidence": result["confidence"],
